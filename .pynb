@@ -1,0 +1,231 @@
+%tensorflow_version 2.x
+from numpy.random import seed
+seed(2)
+#from tensorflow import set_random_seed
+#set_random_seed(2)
+import tensorflow as tf
+from tensorflow import keras
+from IPython import display
+from matplotlib import cm
+from matplotlib import gridspec
+from matplotlib import pyplot as plt
+import numpy as np
+import pandas as pd
+from tensorflow.python.data import Dataset
+from sklearn import preprocessing
+from sklearn.preprocessing import StandardScaler
+print(tf.__version__)
+
+#importing csv file
+pd.options.display.max_rows = 10
+pd.options.display.float_format = '{:.1f}'.format
+
+patients_dataframe = pd.read_csv("LiverData.csv", sep=",")
+patients_dataframe = patients_dataframe.reindex(
+    np.random.permutation(patients_dataframe.index))
+
+
+#Creating Dummies for categorical variables
+patients_dataframe['Gender']=patients_dataframe['Gender'].apply(lambda x:1 if x=='Male' else 0)
+patients_dataframe['Diarrhea ']=patients_dataframe['Diarrhea '].apply(lambda x:1 if x=='Present' else 0)
+patients_dataframe['Epigastric pain ']=patients_dataframe['Epigastric pain '].apply(lambda x:1 if x=='Present' else 0)
+patients_dataframe['Fatigue & generalized bone ache ']=patients_dataframe['Fatigue & generalized bone ache '].apply(lambda x:1 if x=='Present' else 0)
+patients_dataframe['Fever']=patients_dataframe['Fever'].apply(lambda x:1 if x=='Present' else 0)
+patients_dataframe['Headache ']=patients_dataframe['Headache '].apply(lambda x:1 if x=='Present' else 0)
+patients_dataframe['Jaundice ']=patients_dataframe['Jaundice '].apply(lambda x:1 if x=='Present' else 0)
+patients_dataframe['Nausea/Vomting']=patients_dataframe['Nausea/Vomting'].apply(lambda x:1 if x=='Present' else 0)
+patients_dataframe['Class']=pd.np.where(patients_dataframe.Class.str.contains("Few Septa"),"0",
+                 pd.np.where(patients_dataframe.Class.str.contains("Many Septa"), "1",
+                 pd.np.where(patients_dataframe.Class.str.contains("Portal Fibrosis"), "2",
+                 pd.np.where(patients_dataframe.Class.str.contains("Cirrhosis"), "3", "Other"))))
+                 
+patients_dataframe = patients_dataframe.astype(int)
+patients_dataframe
+
+#Preprocess
+def preprocess_features(patients_dataframe):
+  """Prepares input features from concrete slump test data set.
+
+  Args:
+    concrete_dataframe: A Pandas DataFrame expected to contain data
+      from the concrete slump test dataset.
+  Returns:
+    A DataFrame that contains the features to be used for the model. 
+  """
+  selected_features = patients_dataframe[
+    ["Age ",
+     "Gender",
+     "BMI",
+     "Fever",
+     "Nausea/Vomting",
+     "Headache ",
+     "Diarrhea ",
+     "Fatigue & generalized bone ache ",
+     "Jaundice ",
+     "Epigastric pain ",
+     "WBC",
+     "RBC",
+     "HGB",
+     "Plat",
+     "AST 1",
+     "ALT 1",
+     "ALT4",
+     "ALT 12",
+     "ALT 24",
+     "ALT 36",
+     "ALT 48",
+     "ALT after 24 w",
+     "RNA Base",
+     "RNA 4",
+     "RNA 12",
+     "RNA EOT",
+     "RNA EF"]]
+    
+  processed_features = selected_features.copy()
+  
+  return processed_features
+
+def preprocess_targets(patients_dataframe):
+  """Prepares target features (i.e., labels) from  housing data set.
+
+  Args:
+    dataframe: A Pandas DataFrame expected to contain data
+      from the data set.
+  Returns:
+    A DataFrame that contains the target feature.
+  """
+  output_targets = patients_dataframe["Class"]
+  return output_targets
+  
+  #Spliting the data
+  # Choose the first 83 examples for training.
+training_examples = preprocess_features(patients_dataframe.head(900))
+training_targets = preprocess_targets(patients_dataframe.head(900))
+scaler = StandardScaler().fit(training_examples.values)
+scaledf = scaler.transform(training_examples.values)
+training_examples = pd.DataFrame(scaledf, index=training_examples.index, columns=training_examples.columns)
+
+
+# Choose the 20 examples for validation.
+validation_examples = preprocess_features(patients_dataframe.tail(486))
+validation_targets =preprocess_targets(patients_dataframe.tail(486))
+vscaled = scaler.transform(validation_examples.values)
+validation_examples = pd.DataFrame(vscaled, index=validation_examples.index, columns=validation_examples.columns)
+validation_targets = preprocess_targets(patients_dataframe.tail(486))
+
+# Double-check that we've done the right thing.
+print("Training examples summary:")
+display.display(training_examples.describe())
+print("Validation examples summary:")
+display.display(validation_examples.describe())
+
+print("Training targets summary:")
+display.display(training_targets.describe())
+print("Validation targets summary:")
+display.display(validation_targets.describe())
+
+
+#Building the model
+baseline_model = keras.Sequential([
+    keras.layers.Dense(32, activation=tf.nn.relu,
+                       input_shape=(training_examples.shape[1],)),
+    keras.layers.Dense(32, activation=tf.nn.relu),                 
+    keras.layers.Dense(4,activation=tf.nn.softmax)
+
+  ])
+
+baseline_model.compile(loss=tf.keras.losses.SparseCategoricalCrossentropy(),      
+                optimizer="rmsprop",
+                metrics=['accuracy'])
+baseline_model.summary()
+
+#Fit model
+class PrintDot(keras.callbacks.Callback):
+  def on_epoch_end(self, epoch, logs):
+    if epoch % 100 == 0: print('')
+    print('.', end='')
+
+EPOCHS = 500
+b_history = baseline_model.fit(training_examples, training_targets, epochs=EPOCHS,
+                    validation_data= (validation_examples, validation_targets), verbose=0,
+                    callbacks=[PrintDot()])
+                    
+  
+ print(max(b_history.history['accuracy']))
+ 
+ #Ploting the result
+ 
+ import matplotlib.pyplot as plt
+
+
+def plot_history(histories, key='accuracy'):
+  plt.figure(figsize=(16,10))
+  for name, history in histories:
+    val = plt.plot(history.epoch, history.history['val_'+key],
+                   '--', label=name.title()+' Val')
+    plt.plot(history.epoch, history.history[key], color=val[0].get_color(),
+             label=name.title()+' Train')
+
+  plt.xlabel('Epochs')
+  plt.ylabel(key.replace('_',' ').title())
+  plt.legend()
+
+  plt.xlim([0,max(history.epoch)])
+  plt.ylim([0,2])
+
+plot_history([('baseline', b_history)])
+
+
+#Regularization
+l1_model = keras.Sequential([
+    keras.layers.Dense(32, kernel_regularizer=keras.regularizers.l1(0.1), activation=tf.nn.relu,
+                       input_shape=(training_examples.shape[1],)),
+    keras.layers.Dense(32, use_bias=True, kernel_regularizer=keras.regularizers.l1(0.01), activation=tf.nn.relu),
+    keras.layers.Dense(32, use_bias=True, kernel_regularizer=keras.regularizers.l1(0.01), activation=tf.nn.relu),
+    keras.layers.Dense(32, use_bias=True, kernel_regularizer=keras.regularizers.l1(0.01), activation=tf.nn.relu),
+    keras.layers.Dense(4,activation=tf.nn.softmax)
+  ])
+
+l1_model.compile(loss="mae",
+                optimizer="rmsprop",
+                metrics=['accuracy'])
+
+l2_model = keras.Sequential([
+    keras.layers.Dense(10, kernel_regularizer=keras.regularizers.l2(0.1), activation=tf.nn.relu,
+                       input_shape=(training_examples.shape[1],)),
+    keras.layers.Dropout(0.25),
+    keras.layers.Dense(10, kernel_regularizer=keras.regularizers.l2(0.1), activation=tf.nn.relu),
+    keras.layers.Dropout(0.25),
+    keras.layers.Dense(10, kernel_regularizer=keras.regularizers.l2(0.1), activation=tf.nn.relu),
+    keras.layers.Dropout(0.25),
+    keras.layers.Dense(10, kernel_regularizer=keras.regularizers.l2(0.1), activation=tf.nn.relu),
+    keras.layers.Dense(1)
+  ])
+
+l2_model.compile(loss="mse",
+                optimizer="rmsprop",
+                metrics=['accuracy'])
+
+
+  
+class PrintDot(keras.callbacks.Callback):
+  def on_epoch_end(self, epoch, logs):
+    if epoch % 100 == 0: print('')
+    print('.', end='')
+
+EPOCHS = 500
+
+l1_history = l1_model.fit(training_examples, training_targets, epochs=EPOCHS,
+                    validation_data= (validation_examples, validation_targets), verbose=0,
+                    callbacks=[PrintDot()])
+l2_history = l2_model.fit(training_examples, training_targets, epochs=EPOCHS,
+                    validation_data= (validation_examples, validation_targets), verbose=0,
+                    callbacks=[PrintDot()])
+                    
+ # Plot history Multiple
+plot_history([('baseline', b_history),
+              ('L1', l1_history),
+              ('L2', l2_history)])
+
+
+
